@@ -84,7 +84,7 @@ jobs:
       - name: Unlock WiFi and Set Serbia (RS) to 31dBm
         working-directory: openwrt
         run: |
-          # 1. Kernel Certification Onus bekapcsolása (hogy engedje a módosítást)
+          # 1. Kernel Certification Onus bekapcsolása
           echo "CONFIG_CFG80211_CERTIFICATION_ONUS=y" >> target/linux/ramips/config-default
           
           # 2. RS (Szerbia) régió átírása 31 dBm-re
