@@ -1,0 +1,13 @@
+#!/bin/sh
+uci -q batch <<'EOF'
+set zram-swap.@zram-swap[0]=zram-swap
+set zram-swap.@zram-swap[0].enabled='1'
+set zram-swap.@zram-swap[0].size='75'
+set zram-swap.@zram-swap[0].comp_algo='lzo'
+set zram-swap.@zram-swap[0].priority='100'
+EOF
+uci commit zram-swap
+/etc/init.d/zram-swap enable
+/etc/init.d/zram-swap start
+rm -f /etc/uci-defaults/99-r6800-zram
+exit 0
