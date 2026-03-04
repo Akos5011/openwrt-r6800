@@ -81,6 +81,24 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Unlock WiFi and Set Serbia (RS) to 31dBm
+        working-directory: openwrt
+        run: |
+          # 1. Kernel Certification Onus bekapcsolása (hogy engedje a módosítást)
+          echo "CONFIG_CFG80211_CERTIFICATION_ONUS=y" >> target/linux/ramips/config-default
+          
+          # 2. RS (Szerbia) régió átírása 31 dBm-re
+          REG_FILE="package/kernel/mac80211/files/regdb.txt"
+          if [ -f "$REG_FILE" ]; then
+            sed -i '/^country RS:/,/^$/ s/([0-9]\{1,2\})/(31)/g' $REG_FILE
+            # Ellenőrzés a logban
+            echo "=== Módosított RS szekció: ==="
+            sed -n '/^country RS:/,/^$/p' $REG_FILE
+          else
+            echo "HIBA: Nem található a regdb.txt!"
+            exit 1
+          fi
+
       - name: Write .config
         working-directory: openwrt
         run: |
@@ -91,8 +109,9 @@ jobs:
 
       - name: Download package sources
         working-directory: openwrt
-        run: make download -j$(nproc) V=s 2>&1 | tail -20
-
+        run: |
+         make download -j$(nproc) V=s 2>&1 | tail -20
+      
       - name: Build firmware
         working-directory: openwrt
         run: make -j$(nproc) V=s 2>&1 | tee /tmp/build.log | tail -50
