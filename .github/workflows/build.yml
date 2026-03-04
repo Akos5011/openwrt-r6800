@@ -106,10 +106,38 @@ jobs:
         if: success()
         run: |
           mkdir -p firmware
+
+          echo "=== All files in build output ==="
+          find openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ -type f | sort
+
+          # Copy any file with r6800 in the name
           find openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ \
-            -name "*netgear_r6800*" -type f \
+            -type f \( -name "*r6800*" -o -name "*netgear_r6800*" \) \
             -exec cp {} firmware/ \;
+
+          # If still empty, copy ALL images as fallback
+          if [ -z "$(ls -A firmware/)" ]; then
+            echo "WARNING: No r6800 files found, copying all firmware files"
+            find openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ \
+              -type f \( -name "*.bin" -o -name "*.img" \) \
+              -exec cp {} firmware/ \;
+          fi
+
+          echo "=== Firmware directory contents ==="
           ls -lh firmware/
+
+          # Fail the step explicitly if still empty so it's obvious
+          [ -n "$(ls -A firmware/)" ] || \
+            { echo "ERROR: No firmware files collected"; exit 1; }
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: openwrt-r6800-snapshot-${{ github.run_number }}
+          path: firmware/
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
