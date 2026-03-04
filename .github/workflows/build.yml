@@ -88,7 +88,7 @@ jobs:
           echo "CONFIG_CFG80211_CERTIFICATION_ONUS=y" >> target/linux/ramips/config-default
           
           # 2. Kényszerítjük a mac80211 csomag kicsomagolását, hogy meglegyen a fájl
-          make package/kernel/mac80211/prepare V=s
+          make package/kernel/mac80211/prepare V=s IGNORE_ERRORS=1
           
           # 3. Megkeressük a regdb.txt-t (Snapshoton több helyen is lehet)
           REG_FILE=$(find package/kernel/mac80211 -name regdb.txt | head -n 1)
