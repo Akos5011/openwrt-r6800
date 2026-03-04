@@ -26,6 +26,13 @@ ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
 ip6tables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN \
     -j TCPMSS --set-mss 1432 2>/dev/null || true
 
+# Airtime fairness — stops slow clients (old phones, IoT) from
+# hogging airtime and dragging down faster clients on the same radio
+uci set wireless.radio0.airtime_policy='1'
+uci set wireless.radio1.airtime_policy='1'
+uci commit wireless
+wifi reload
+
 # ---------------------------------------------------------------
 # TCP initial congestion window — skip slow start ramp on WAN
 # ---------------------------------------------------------------
