@@ -43,12 +43,29 @@ jobs:
       - name: Apply antenna DTS fix
         working-directory: openwrt
         run: |
-          DTS=target/linux/ramips/dts/mt7621_netgear_r6800.dts
-          echo "=== DTS before ===" && grep -n "ieee80211-freq-limit\|antenna-mask" "$DTS" || true
-          sed -i '/ieee80211-freq-limit = <5000000 6000000>/a \\t\t\tantenna-mask = <0x7>;' "$DTS"
-          sed -i '/ieee80211-freq-limit = <2400000 2500000>/a \\t\t\tantenna-mask = <0x7>;' "$DTS"
-          echo "=== DTS after ===" && grep -n "ieee80211-freq-limit\|antenna-mask" "$DTS"
+          # R6800 DTS now delegates to a shared DTSI — patch that instead
+          DTSI=target/linux/ramips/dts/mt7621_netgear_sercomm_bzv.dtsi
 
+          # Fall back to the R6800 DTS directly if the DTSI doesn't exist
+          if [ ! -f "$DTSI" ]; then
+            DTSI=target/linux/ramips/dts/mt7621_netgear_r6800.dts
+          fi
+
+          echo "=== Patching: $DTSI ==="
+          echo "=== Before ===" && grep -n "ieee80211-freq-limit\|antenna-mask" "$DTSI" || true
+
+          # Dump the file so we can see the actual node structure in the log
+          echo "=== Full DTSI ===" && cat "$DTSI"
+
+          sed -i '/ieee80211-freq-limit = <5000000 6000000>/a \\t\t\tantenna-mask = <0x7>;' "$DTSI"
+          sed -i '/ieee80211-freq-limit = <2400000 2500000>/a \\t\t\tantenna-mask = <0x7>;' "$DTSI"
+
+          echo "=== After ===" && grep -n "ieee80211-freq-limit\|antenna-mask" "$DTSI"
+
+          # Fail loudly if neither sed matched anything
+          grep -q "antenna-mask" "$DTSI" || \
+            { echo "ERROR: antenna-mask not inserted — check node structure above"; exit 1; }
+            
       - name: Copy custom files into image
         run: |
           mkdir -p openwrt/files/etc/uci-defaults
