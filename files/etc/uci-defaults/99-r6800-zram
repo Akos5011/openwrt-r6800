@@ -1,4 +1,8 @@
 #!/bin/sh
+
+# ---------------------------------------------------------------
+# zram-swap configuration
+# ---------------------------------------------------------------
 uci -q batch <<'EOF'
 set zram-swap.@zram-swap[0]=zram-swap
 set zram-swap.@zram-swap[0].enabled='1'
@@ -9,5 +13,129 @@ EOF
 uci commit zram-swap
 /etc/init.d/zram-swap enable
 /etc/init.d/zram-swap start
+
+# ---------------------------------------------------------------
+# PPPoE MSS clamp — prevents fragmentation at the DSLAM
+# ---------------------------------------------------------------
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
+    -j TCPMSS --set-mss 1452
+iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN \
+    -j TCPMSS --set-mss 1452
+ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
+    -j TCPMSS --set-mss 1432 2>/dev/null || true
+ip6tables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN \
+    -j TCPMSS --set-mss 1432 2>/dev/null || true
+
+# ---------------------------------------------------------------
+# TCP initial congestion window — skip slow start ramp on WAN
+# ---------------------------------------------------------------
+ip route change default via $(ip route | awk '/^default/{print $3}') \
+    initcwnd 32 initrwnd 32 2>/dev/null || true
+
+# ---------------------------------------------------------------
+# DSCP marking — force traffic into correct CAKE tins
+# ---------------------------------------------------------------
+# Bulk — BitTorrent
+iptables -t mangle -A POSTROUTING -p tcp --dport 6881:6889 -j DSCP --set-dscp-class CS1
+iptables -t mangle -A POSTROUTING -p udp --dport 6881:6889 -j DSCP --set-dscp-class CS1
+# Low latency — DNS
+iptables -t mangle -A POSTROUTING -p udp --dport 53 -j DSCP --set-dscp-class AF21
+iptables -t mangle -A POSTROUTING -p tcp --dport 53 -j DSCP --set-dscp-class AF21
+# Voice tin — gaming
+iptables -t mangle -A POSTROUTING -p udp --dport 3074      -j DSCP --set-dscp-class EF
+iptables -t mangle -A POSTROUTING -p udp --dport 3478:3480 -j DSCP --set-dscp-class EF
+iptables -t mangle -A POSTROUTING -p udp --dport 27015     -j DSCP --set-dscp-class EF
+# Video tin — RTMP streaming
+iptables -t mangle -A POSTROUTING -p tcp --dport 1935 -j DSCP --set-dscp-class AF41
+
+# ---------------------------------------------------------------
+# CAKE qdisc on PPPoE WAN
+# ---------------------------------------------------------------
+WAN_IFACE="pppoe-wan"
+
+apply_cake() {
+    ip link add name ifb-wan type ifb 2>/dev/null || true
+    ip link set ifb-wan up
+
+    tc qdisc replace dev "$WAN_IFACE" root cake \
+        bandwidth 7500kbit \
+        pppoe-ptm \
+        diffserv4 \
+        dual-srchost \
+        ack-filter-aggressive \
+        nat \
+        wash \
+        split-gso \
+        rtt 20ms \
+        memlimit 4m
+
+    tc qdisc replace dev "$WAN_IFACE" ingress
+    tc filter replace dev "$WAN_IFACE" parent ffff: \
+        matchall action mirred egress redirect dev ifb-wan
+
+    tc qdisc replace dev ifb-wan root cake \
+        bandwidth 47000kbit \
+        pppoe-ptm \
+        besteffort \
+        dual-dsthost \
+        no-ack-filter \
+        nat \
+        wash \
+        ingress \
+        split-gso \
+        rtt 20ms \
+        memlimit 8m
+}
+
+ip link show "$WAN_IFACE" >/dev/null 2>&1 && apply_cake
+
+# ---------------------------------------------------------------
+# CAKE hotplug hook — re-applies after every PPPoE reconnect
+# ---------------------------------------------------------------
+mkdir -p /etc/hotplug.d/iface
+cat > /etc/hotplug.d/iface/11-cake-wan <<'HOTPLUG'
+#!/bin/sh
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wan" ] || exit 0
+WAN_IFACE="pppoe-wan"
+
+ip link add name ifb-wan type ifb 2>/dev/null || true
+ip link set ifb-wan up
+
+tc qdisc replace dev "$WAN_IFACE" root cake \
+    bandwidth 7500kbit \
+    pppoe-ptm \
+    diffserv4 \
+    dual-srchost \
+    ack-filter-aggressive \
+    nat \
+    wash \
+    split-gso \
+    rtt 20ms \
+    memlimit 4m
+
+tc qdisc replace dev "$WAN_IFACE" ingress
+tc filter replace dev "$WAN_IFACE" parent ffff: \
+    matchall action mirred egress redirect dev ifb-wan
+
+tc qdisc replace dev ifb-wan root cake \
+    bandwidth 47000kbit \
+    pppoe-ptm \
+    besteffort \
+    dual-dsthost \
+    no-ack-filter \
+    nat \
+    wash \
+    ingress \
+    split-gso \
+    rtt 20ms \
+    memlimit 8m
+HOTPLUG
+
+chmod +x /etc/hotplug.d/iface/11-cake-wan
+
+# ---------------------------------------------------------------
+# Self-delete — runs once on first boot only
+# ---------------------------------------------------------------
 rm -f /etc/uci-defaults/99-r6800-zram
 exit 0
