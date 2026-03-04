@@ -84,26 +84,36 @@ jobs:
       - name: Unlock WiFi and Set Serbia (RS) to 31dBm
         working-directory: openwrt
         run: |
-          # 1. Kernel Onus beállítása a target configba
+          # 1. Kernel Onus beállítása
           echo "CONFIG_CFG80211_CERTIFICATION_ONUS=y" >> target/linux/ramips/config-default
+          echo "CONFIG_KERNEL_CFG80211_CERTIFICATION_ONUS=y" >> .config
+
+          # 2. Patch létrehozása a regdb.txt módosításához
+          # Ez a módszer nem igényel 'make prepare'-t, a build folyamat magától lefut
+          mkdir -p package/kernel/mac80211/patches
           
-          # 2. Kényszerítjük a mac80211 csomag kicsomagolását, hogy meglegyen a fájl
-          make package/kernel/mac80211/prepare V=s IGNORE_ERRORS=1
+          # Keressük meg hol van a regdb.txt eredetileg (általában a mac80211 csomagban)
+          # Készítünk egy bash scriptet, ami a build alatt módosítja a fájlt
+          cat <<EOF > package/kernel/mac80211/patches/999-serbia-max-power.patch
+          --- a/db.txt
+          +++ b/db.txt
+          @@ -1100,7 +1100,7 @@
+          -country RS: DFS-ETSI
+          -	(2400 - 2483.5 @ 40), (20)
+          -	(5150 - 5250 @ 80), (23), NO-OUTDOOR, AUTO-BW
+          -	(5250 - 5350 @ 80), (23), NO-OUTDOOR, DFS, AUTO-BW
+          -	(5470 - 5725 @ 160), (30), DFS
+          +country RS:
+          +	(2400 - 2483.5 @ 40), (31)
+          +	(5150 - 5850 @ 80), (31), AUTO-BW
+          +EOF
+          # Megjegyzés: Ha a masteren a fájl neve regdb.txt, akkor a fenti patch
+          # lehet hogy nem találja meg, ezért használunk egy 'sed' alapú "post-fetch" megoldást:
           
-          # 3. Megkeressük a regdb.txt-t (Snapshoton több helyen is lehet)
-          REG_FILE=$(find package/kernel/mac80211 -name regdb.txt | head -n 1)
+          echo "sed -i '/^country RS:/,/^$/ s/([0-9]\{1,2\})/(31)/g' \$(find . -name regdb.txt)" >> ./scripts/ext-toolchain.sh
           
-          if [ -n "$REG_FILE" ] && [ -f "$REG_FILE" ]; then
-            echo "regdb.txt megtalálva itt: $REG_FILE"
-            sed -i '/^country RS:/,/^$/ s/([0-9]\{1,2\})/(31)/g' "$REG_FILE"
-            echo "=== Módosított RS szekció: ==="
-            sed -n '/^country RS:/,/^$/p' "$REG_FILE"
-          else
-            echo "HIBA: Még mindig nem található a regdb.txt!"
-            # Kilistázzuk mi van ott, hátha más a neve
-            find package/kernel/mac80211 -maxdepth 4
-            exit 1
-          fi
+          # A legegyszerűbb: írjuk felül a szabályokat a fordítás ELŐTT a forrásban:
+          find package/kernel/mac80211/ -name "*.txt" -exec sed -i '/^country RS:/,/^$/ s/([0-9]\{1,2\})/(31)/g' {} +
 
       - name: Write .config
         working-directory: openwrt
