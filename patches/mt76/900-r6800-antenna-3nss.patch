@@ -1,0 +1,19 @@
+--- a/mt7615/eeprom.c
++++ b/mt7615/eeprom.c
+@@ -... @@
+ 	if (!tx_mask || tx_mask > max_nss)
+ 		tx_mask = max_nss;
++
++	/* Allow DTS to override chain count for boards (like R6800)
++	 * where the silicon supports 4T4R but only 3 antennas are fitted. */
++	{
++		struct device_node *np = dev->mt76.dev->of_node;
++		u32 dt_mask;
++		if (!of_property_read_u32(np, "antenna-mask", &dt_mask)) {
++			u8 dt_chains = hweight32(dt_mask);
++			if (dt_chains > 0 && dt_chains <= max_nss)
++				tx_mask = dt_chains;
++		}
++	}
++
+ 	dev->chainmask = BIT(tx_mask) - 1;
